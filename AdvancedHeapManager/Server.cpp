@@ -6,6 +6,7 @@
 #include <process.h>
 #include <windows.h>
 #include "AdvancedHeapManager.h"
+#include "ThreadPool.h" 
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -27,9 +28,13 @@ bool g_keep_running = true;
 // =========================================================================================
 
 #define DEFAULT_PORT "27015"
+#define NUM_WORKER_THREADS 16 // Broj unapred kreiranih niti u pool-u
+
 const int HEAP_COUNT = 4;
 const size_t HEAP_SIZE_MB = 4;
 AdvancedHeapManager g_ahm(HEAP_COUNT, HEAP_SIZE_MB * 1024 * 1024);
+
+ThreadPool g_thread_pool(NUM_WORKER_THREADS);
 
 unsigned int __stdcall ClientHandlerThread(void* p_client_socket) {
     SOCKET client_socket = (SOCKET)(uintptr_t)p_client_socket;
@@ -100,11 +105,15 @@ int main() {
     bind(listen_socket, result->ai_addr, (int)result->ai_addrlen);
     freeaddrinfo(result);
     listen(listen_socket, SOMAXCONN);
+
     HANDLE h_monitor_thread = (HANDLE)_beginthreadex(NULL, 0, (_beginthreadex_proc_type)MonitorThread, NULL, 0, NULL);
+
+    printf("Server sa Thread Pool-om (%d niti) slusa na portu %s...\n", NUM_WORKER_THREADS, DEFAULT_PORT);
+
     while (true) {
         SOCKET client_socket = accept(listen_socket, NULL, NULL);
         if (client_socket == INVALID_SOCKET) { continue; }
-        _beginthreadex(NULL, 0, &ClientHandlerThread, (void*)(uintptr_t)client_socket, 0, NULL);
+        g_thread_pool.submit_task((void*)(uintptr_t)client_socket);
     }
     closesocket(listen_socket);
     WSACleanup();
